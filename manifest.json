@@ -1,0 +1,18 @@
+{
+  "name": "面试闪卡作战台",
+  "short_name": "面试闪卡",
+  "description": "投递节奏、公司题库、语音作答和 AI 点评都在一个页面里。",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4efe8",
+  "theme_color": "#d96f32",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
