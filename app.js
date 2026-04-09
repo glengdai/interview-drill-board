@@ -515,13 +515,61 @@ const companies = [
   },
 ].sort((left, right) => left.priority - right.priority);
 
+const companyRequirements = {
+  leishen: [
+    "熟悉电竞 / 赛事内容生态和用户观看链路",
+    "能围绕内容生产、传播和互动设计产品",
+    "具备数据分析与跨团队推进能力",
+  ],
+  leiniao: [
+    "有中台 / 平台产品经验，能抽象可复用能力",
+    "擅长权限、流程、规则和系统设计",
+    "能把 AI 能力落进实际协同流程",
+  ],
+  oppo: [
+    "熟悉 AI 工具产品定义与体验设计",
+    "能从高频痛点做 0-1 MVP 并验证效果",
+    "关注模型边界、容错和用户反馈闭环",
+  ],
+  kuaishou: [
+    "具备内部平台或运营支撑系统经验",
+    "能把业务流程抽象成稳定可复用系统",
+    "会用 AI 提升信息处理、内容运营和效率",
+  ],
+  rongyao: [
+    "理解系统级 AI 产品闭环和能力边界",
+    "能与算法、研发协同推进落地和优化",
+    "擅长数据驱动体验迭代和长期规划",
+  ],
+  "xunlei-ai": [
+    "具备 0-1 AI 工具产品和原型能力",
+    "能快速验证需求并形成用户价值闭环",
+    "对工作流、效率产品和真实落地敏感",
+  ],
+  "xunlei-ai-tool": [
+    "擅长把复杂问题收敛成轻量小工具",
+    "关注低门槛、高频使用和体验打磨",
+    "自驱推进，能独立完成方案和原型",
+  ],
+  byte: [
+    "深入理解 AIGC / Agent 任务编排和评估",
+    "熟悉创作者生态、UGC / PGC 内容场景",
+    "能定义 Agent 边界并推动算法研发落地",
+  ],
+};
+
 const storageKey = "interview-drill-progress";
 const statusOptions = ["待投", "进行中", "Offer", "失败"];
 
 const state = {
   selectedCompanyId: null,
-  questionIndex: 0,
-  flipped: false,
+  slideIndex: 0,
+  recognition: null,
+  listeningKey: null,
+  submittingKey: null,
+  pointerActive: false,
+  pointerStartX: 0,
+  pointerStartY: 0,
 };
 
 function loadStoredValue(key, fallback) {
@@ -537,28 +585,28 @@ function saveStoredValue(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 const progress = loadStoredValue(storageKey, {});
 
 const els = {
   boardView: document.getElementById("board-view"),
   boardSections: document.getElementById("board-sections"),
   detailView: document.getElementById("detail-view"),
-  companyName: document.getElementById("company-name"),
-  companyRole: document.getElementById("company-role"),
-  detailPhase: document.getElementById("detail-phase"),
-  companyResume: document.getElementById("company-resume"),
-  companySchedule: document.getElementById("company-schedule"),
-  companyProgress: document.getElementById("company-progress"),
-  companyStatusSwitch: document.getElementById("company-status-switch"),
-  questionCounter: document.getElementById("question-counter"),
-  questionType: document.getElementById("question-type"),
-  flashcard: document.getElementById("flashcard"),
-  cardQuestion: document.getElementById("card-question"),
-  cardPrompts: document.getElementById("card-prompts"),
-  cardAnswer: document.getElementById("card-answer"),
-  answerInput: document.getElementById("answer-input"),
-  saveNote: document.getElementById("save-note"),
-  questionJumps: document.getElementById("question-jumps"),
+  slideIndicator: document.getElementById("slide-indicator"),
+  swipeCard: document.getElementById("swipe-card"),
+  cardStage: document.getElementById("card-stage"),
+  finishModal: document.getElementById("finish-modal"),
+  finishMessage: document.getElementById("finish-message"),
+  prevSlide: document.getElementById("prev-slide"),
+  nextSlide: document.getElementById("next-slide"),
 };
 
 function saveProgress() {
@@ -571,6 +619,15 @@ function getCompanyById(companyId) {
 
 function getCurrentCompany() {
   return state.selectedCompanyId ? getCompanyById(state.selectedCompanyId) : null;
+}
+
+function getCurrentQuestion(company = getCurrentCompany()) {
+  if (!company || state.slideIndex === 0) return null;
+  return company.questions[state.slideIndex - 1] || null;
+}
+
+function getQuestionKey(question) {
+  return question?.question || "";
 }
 
 function getLegacyRounds(companyId) {
@@ -590,9 +647,13 @@ function ensureCompanyProgress(companyId) {
 
   const entry = progress[companyId];
   if (!entry.answers) entry.answers = {};
-  if (typeof entry.lastQuestion !== "number") entry.lastQuestion = 0;
+  if (!entry.reviews && entry.scores) entry.reviews = { ...entry.scores };
+  if (!entry.reviews) entry.reviews = {};
   if (!entry.status || !statusOptions.includes(entry.status)) entry.status = "待投";
-  if (!entry.roundSeen) entry.roundSeen = {};
+  if (!entry.roundSubmitted) entry.roundSubmitted = {};
+  if (typeof entry.lastSlide !== "number") {
+    entry.lastSlide = typeof entry.lastQuestion === "number" ? entry.lastQuestion + 1 : 0;
+  }
 
   if (typeof entry.completedRounds !== "number") {
     entry.completedRounds = getLegacyRounds(companyId);
@@ -649,6 +710,14 @@ function getWeekInfo(company) {
   };
 }
 
+function getRequirements(companyId) {
+  return companyRequirements[companyId] || ["关注产品定义、落地和协同能力"];
+}
+
+function getTotalSlides(company) {
+  return company.questions.length + 1;
+}
+
 function getAnsweredCount(company) {
   ensureCompanyProgress(company.id);
   return company.questions.filter((question) => {
@@ -657,22 +726,19 @@ function getAnsweredCount(company) {
   }).length;
 }
 
+function getReviewedCount(company) {
+  ensureCompanyProgress(company.id);
+  return company.questions.filter((question) => progress[company.id].reviews[question.question]).length;
+}
+
 function getCompanyStats(company) {
   ensureCompanyProgress(company.id);
   return {
     answeredCount: getAnsweredCount(company),
+    reviewedCount: getReviewedCount(company),
     completedRounds: progress[company.id].completedRounds || 0,
     status: progress[company.id].status,
   };
-}
-
-function setSaveNote(message) {
-  els.saveNote.textContent = message;
-}
-
-function setFlipped(nextValue) {
-  state.flipped = nextValue;
-  els.flashcard.classList.toggle("is-flipped", nextValue);
 }
 
 function renderBoard() {
@@ -689,35 +755,30 @@ function renderBoard() {
   const sections = [...groups.values()]
     .sort((left, right) => left.order - right.order)
     .map((group) => {
-      const groupCards = group.companies
+      const cards = group.companies
         .sort((left, right) => left.priority - right.priority)
         .map((company) => {
           const stats = getCompanyStats(company);
-
           return `
-            <button
-              class="company-card ${state.selectedCompanyId === company.id ? "is-active" : ""}"
-              data-company-select="${company.id}"
-              type="button"
-            >
+            <button class="company-card" data-company-select="${company.id}" type="button">
               <div class="company-card__top">
                 <span class="badge badge--${company.batch}">${company.batch}</span>
                 <span class="badge status-badge--${stats.status}">${stats.status}</span>
               </div>
-              <h3 class="company-card__name">${company.name}</h3>
-              <p class="company-card__role">${company.role}</p>
+              <h3 class="company-card__name">${escapeHtml(company.name)}</h3>
+              <p class="company-card__role">${escapeHtml(company.role)}</p>
               <div class="company-card__meta">
-                <span class="badge badge--neutral">简历 ${company.resume}</span>
-                <span class="badge badge--neutral">${company.schedule}</span>
+                <span class="badge badge--neutral">简历 ${escapeHtml(company.resume)}</span>
+                <span class="badge badge--neutral">${escapeHtml(company.schedule)}</span>
               </div>
               <div class="company-card__bottom">
-                <div class="company-stat">
+                <div class="company-metric">
                   <strong>${stats.completedRounds}</strong>
                   <span>已刷轮次</span>
                 </div>
-                <div class="company-stat">
+                <div class="company-metric">
                   <strong>${stats.answeredCount}/${company.questions.length}</strong>
-                  <span>已答题数</span>
+                  <span>已答进度</span>
                 </div>
               </div>
             </button>
@@ -726,15 +787,15 @@ function renderBoard() {
         .join("");
 
       return `
-        <section class="board-section">
-          <div class="board-section__head">
+        <section class="board-lane">
+          <div class="board-lane__head">
             <div>
-              <h3 class="board-section__title">${group.title}</h3>
-              <p class="board-section__meta">${group.description}</p>
+              <h2 class="board-lane__title">${group.title}</h2>
+              <p class="board-lane__summary">${group.description}</p>
             </div>
             <span class="badge badge--neutral">${group.companies.length} 家</span>
           </div>
-          <div class="company-grid">${groupCards}</div>
+          <div class="lane-cards">${cards}</div>
         </section>
       `;
     })
@@ -743,18 +804,49 @@ function renderBoard() {
   els.boardSections.innerHTML = sections;
 }
 
-function renderDetailMeta(company) {
+function renderSlideIndicator(company) {
+  const totalSlides = getTotalSlides(company);
+  els.slideIndicator.textContent =
+    state.slideIndex === 0
+      ? `公司信息 1 / ${totalSlides}`
+      : `第 ${state.slideIndex} 题 / ${company.questions.length}`;
+
+  els.prevSlide.disabled = state.slideIndex === 0;
+  els.nextSlide.disabled = state.slideIndex >= totalSlides - 1;
+}
+
+function renderReviewHtml(review) {
+  if (!review) {
+    return `<div class="slide-content__review is-empty">提交后这里会出现 AI 点评结论。</div>`;
+  }
+
+  const badges = (review.badges || [])
+    .map((badge) => `<span class="pill">${escapeHtml(badge)}</span>`)
+    .join("");
+  const rewrite = review.rewrite
+    ? `<p class="review-rewrite">${escapeHtml(review.rewrite)}</p>`
+    : "";
+
+  return `
+    <div class="slide-content__review">
+      <div class="review-score">
+        <strong>${escapeHtml(review.total ?? "--")}</strong>
+        <span>/ 100 · ${escapeHtml(review.source || "AI 点评")}</span>
+      </div>
+      <div class="review-badges">${badges}</div>
+      <p class="review-summary">${escapeHtml(review.summary || "")}</p>
+      ${rewrite}
+    </div>
+  `;
+}
+
+function renderIntroSlide(company) {
   const stats = getCompanyStats(company);
   const week = getWeekInfo(company);
-
-  els.detailPhase.textContent = `${week.title} · ${company.batch}`;
-  els.companyName.textContent = company.name;
-  els.companyRole.textContent = company.role;
-  els.companyResume.textContent = `简历 ${company.resume}`;
-  els.companySchedule.textContent = company.schedule;
-  els.companyProgress.textContent = `已刷 ${stats.completedRounds} 轮 · 已答 ${stats.answeredCount}/${company.questions.length}`;
-
-  els.companyStatusSwitch.innerHTML = statusOptions
+  const requirements = getRequirements(company.id)
+    .map((item) => `<span class="pill">${escapeHtml(item)}</span>`)
+    .join("");
+  const statusSwitch = statusOptions
     .map(
       (status) => `
         <button
@@ -767,116 +859,140 @@ function renderDetailMeta(company) {
       `,
     )
     .join("");
+
+  els.swipeCard.innerHTML = `
+    <div class="slide-content slide-content--intro">
+      <p class="slide-content__eyebrow">${escapeHtml(week.title)} · ${escapeHtml(company.batch)}</p>
+      <div>
+        <h1 class="slide-content__title">${escapeHtml(company.name)}</h1>
+        <p class="slide-content__subtitle">${escapeHtml(company.role)}</p>
+      </div>
+      <div class="slide-content__meta">
+        <span class="pill">简历 ${escapeHtml(company.resume)}</span>
+        <span class="pill">${escapeHtml(company.schedule)}</span>
+        <span class="pill">已答 ${stats.answeredCount}/${company.questions.length}</span>
+        <span class="pill">已刷 ${stats.completedRounds} 轮</span>
+      </div>
+      <div class="slide-content__section">
+        <h3>JD 要求</h3>
+        <div class="requirements">${requirements}</div>
+      </div>
+      <div class="slide-content__section">
+        <h3>投递状态</h3>
+        <div class="status-switch">${statusSwitch}</div>
+      </div>
+      <div class="slide-content__footer">
+        <span>${escapeHtml(company.strategy)}</span>
+        <button class="primary-button" data-start-questions type="button">开始第一题</button>
+      </div>
+    </div>
+  `;
 }
 
-function renderQuestionJumps(company) {
-  ensureCompanyProgress(company.id);
+function supportsVoiceInput() {
+  return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
 
-  els.questionJumps.innerHTML = company.questions
-    .map((question, index) => {
-      const answered = Boolean(progress[company.id].answers[question.question]?.trim());
-      return `
-        <button
-          class="question-jump ${index === state.questionIndex ? "is-active" : ""} ${
-            answered ? "is-answered" : ""
-          }"
-          data-question-jump="${index}"
-          type="button"
-        >
-          ${index + 1}
+function renderQuestionSlide(company) {
+  ensureCompanyProgress(company.id);
+  const question = getCurrentQuestion(company);
+  if (!question) return;
+
+  const entry = progress[company.id];
+  const answer = entry.answers[question.question] || "";
+  const review = entry.reviews[question.question] || null;
+  const voiceSupported = supportsVoiceInput();
+  const isRecording = state.listeningKey === getQuestionKey(question);
+  const isSubmitting = state.submittingKey === getQuestionKey(question);
+
+  els.swipeCard.innerHTML = `
+    <div class="slide-content slide-content--question">
+      <p class="slide-content__eyebrow">${escapeHtml(company.name)} · ${escapeHtml(question.type)}</p>
+      <div class="slide-content__title-row">
+        <h2 class="slide-content__question">${escapeHtml(question.question)}</h2>
+        <span class="pill">${state.slideIndex}/${company.questions.length}</span>
+      </div>
+      <div class="question-tags">
+        ${question.prompts.map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join("")}
+      </div>
+      <textarea data-answer-input placeholder="在这里直接回答。右滑下一题，左滑回上一题。"></textarea>
+      <div class="slide-content__actions">
+        <div class="detail-toolbar__nav">
+          <button class="ghost-button" data-voice-start type="button" ${voiceSupported ? "" : "disabled"}>
+            ${voiceSupported ? (isRecording ? "录音中..." : "语音输入") : "语音不可用"}
+          </button>
+          <button class="ghost-button" data-voice-stop type="button" ${isRecording ? "" : "disabled"}>
+            停止
+          </button>
+        </div>
+        <button class="primary-button" data-submit-answer type="button" ${isSubmitting ? "disabled" : ""}>
+          ${isSubmitting ? "提交中..." : "提交点评"}
         </button>
-      `;
-    })
-    .join("");
+      </div>
+      ${renderReviewHtml(review)}
+      <div class="slide-content__footer">
+        <span>${review ? "已生成点评，可继续修改后再次提交。" : "提交后这里会出现 AI 点评结论。"}</span>
+        <span>${voiceSupported ? "右滑下一题，左滑上一题" : "当前浏览器不支持语音输入"}</span>
+      </div>
+    </div>
+  `;
+
+  const textarea = els.swipeCard.querySelector("[data-answer-input]");
+  if (textarea) textarea.value = answer;
 }
 
-function renderQuestion(company) {
-  ensureCompanyProgress(company.id);
-  const question = company.questions[state.questionIndex];
-  const savedAnswer = progress[company.id].answers[question.question] || "";
+function renderCurrentSlide() {
+  const company = getCurrentCompany();
+  if (!company) return;
 
-  els.questionCounter.textContent = `${state.questionIndex + 1} / ${company.questions.length}`;
-  els.questionType.textContent = question.type;
-  els.cardQuestion.textContent = question.question;
-  els.cardPrompts.innerHTML = question.prompts.map((item) => `<span>${item}</span>`).join("");
-  els.cardAnswer.textContent = question.answer;
-  els.answerInput.value = savedAnswer;
-  setSaveNote(savedAnswer ? "已自动保存" : "这一题还没写");
-  setFlipped(false);
-  renderQuestionJumps(company);
+  renderSlideIndicator(company);
+  if (state.slideIndex === 0) {
+    renderIntroSlide(company);
+  } else {
+    renderQuestionSlide(company);
+  }
 }
 
 function renderCompany(companyId) {
   const company = getCompanyById(companyId);
   if (!company) return;
 
+  stopVoiceInput();
+  closeFinishModal();
   ensureCompanyProgress(company.id);
   state.selectedCompanyId = company.id;
-  state.questionIndex = Math.min(
-    progress[company.id].lastQuestion || 0,
-    Math.max(0, company.questions.length - 1),
-  );
+  state.slideIndex = 0;
 
   els.boardView.classList.add("hidden");
   els.detailView.classList.remove("hidden");
-
-  renderDetailMeta(company);
-  renderQuestion(company);
+  renderCurrentSlide();
   renderBoard();
 }
 
 function showBoard() {
-  const company = getCurrentCompany();
-  if (company) {
-    saveCurrentAnswer();
-  }
-
+  saveCurrentAnswer();
+  stopVoiceInput();
+  closeFinishModal();
+  state.selectedCompanyId = null;
+  state.slideIndex = 0;
   els.detailView.classList.add("hidden");
   els.boardView.classList.remove("hidden");
   renderBoard();
 }
 
-function markQuestionSeen(company) {
-  ensureCompanyProgress(company.id);
-  const question = company.questions[state.questionIndex];
-  const seen = progress[company.id].roundSeen;
-
-  if (seen[question.question]) return;
-
-  seen[question.question] = true;
-
-  if (company.questions.every((item) => seen[item.question])) {
-    progress[company.id].completedRounds += 1;
-    progress[company.id].roundSeen = {};
-    setSaveNote(`已完成第 ${progress[company.id].completedRounds} 轮`);
-  } else {
-    setSaveNote("已翻到答案");
-  }
-
-  saveProgress();
-  renderDetailMeta(company);
-  renderBoard();
-}
-
-function toggleCard(forceValue = null) {
-  const company = getCurrentCompany();
-  if (!company) return;
-
-  const nextValue = typeof forceValue === "boolean" ? forceValue : !state.flipped;
-  if (nextValue && !state.flipped) {
-    markQuestionSeen(company);
-  }
-  setFlipped(nextValue);
+function getAnswerInput() {
+  return els.swipeCard.querySelector("[data-answer-input]");
 }
 
 function saveCurrentAnswer() {
   const company = getCurrentCompany();
-  if (!company) return;
+  const question = getCurrentQuestion(company);
+  const input = getAnswerInput();
+  if (!company || !question || !input) return;
 
   ensureCompanyProgress(company.id);
-  const question = company.questions[state.questionIndex];
   const previousAnswer = progress[company.id].answers[question.question] || "";
-  const nextAnswer = els.answerInput.value.trim();
+  const nextAnswer = input.value.trim();
 
   if (nextAnswer) {
     progress[company.id].answers[question.question] = nextAnswer;
@@ -884,54 +1000,133 @@ function saveCurrentAnswer() {
     delete progress[company.id].answers[question.question];
   }
 
-  progress[company.id].lastQuestion = state.questionIndex;
+  progress[company.id].lastSlide = state.slideIndex;
   saveProgress();
-  setSaveNote(nextAnswer ? "已自动保存" : "这一题还没写");
 
   if (Boolean(previousAnswer.trim()) !== Boolean(nextAnswer)) {
-    renderDetailMeta(company);
-    renderQuestionJumps(company);
     renderBoard();
   }
 }
 
-function clearCurrentAnswer() {
-  const company = getCurrentCompany();
-  if (!company) return;
+function updateRoundProgress(company, questionKey) {
+  ensureCompanyProgress(company.id);
+  const entry = progress[company.id];
+  entry.roundSubmitted[questionKey] = true;
 
-  els.answerInput.value = "";
-  const question = company.questions[state.questionIndex];
-  delete progress[company.id].answers[question.question];
-  progress[company.id].lastQuestion = state.questionIndex;
+  if (company.questions.every((question) => entry.roundSubmitted[question.question])) {
+    entry.completedRounds += 1;
+    entry.roundSubmitted = {};
+  }
+}
+
+function analyzeLocally(answer, question) {
+  const clean = answer.trim();
+  const keyMatches = question.keyPoints.filter((item) => clean.includes(item)).length;
+  const hasNumber = /\d/.test(clean);
+  const total = Math.max(
+    42,
+    Math.min(95, Math.round(48 + keyMatches * 7 + (hasNumber ? 8 : 0) + Math.min(clean.length, 180) / 15)),
+  );
+  const missing = question.keyPoints.filter((item) => !clean.includes(item)).slice(0, 3);
+  const summary = [
+    keyMatches >= Math.ceil(question.keyPoints.length / 2)
+      ? "回答方向是对的，和题目基本贴合。"
+      : "核心点还没完全打中，可以再聚焦岗位要求。",
+    hasNumber ? "你有结果感，面试官更容易判断真实产出。" : "建议补一个结果、数据或效果判断。",
+    missing.length ? `还可以补上：${missing.join("、")}。` : "这版已经可以继续练口语化表达了。",
+  ].join("");
+
+  return {
+    total,
+    badges: [
+      `关键词 ${Math.min(question.keyPoints.length, keyMatches)}/${question.keyPoints.length}`,
+      hasNumber ? "有结果感" : "补结果",
+      clean.length > 160 ? "略长" : "长度可用",
+    ],
+    summary,
+    rewrite: "",
+    source: "本地备用",
+  };
+}
+
+async function requestAiReview(company, question, answer, localReview) {
+  const payload = {
+    company: {
+      name: company.name,
+      role: company.role,
+      batch: company.batch,
+      resume: company.resume,
+      strategy: company.strategy,
+    },
+    question: {
+      type: question.type,
+      title: question.question,
+      prompts: question.prompts,
+      keyPoints: question.keyPoints,
+      referenceAnswer: question.answer,
+    },
+    candidateAnswer: answer,
+    localReview,
+  };
+
+  const response = await fetch("/api/review", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || "AI 点评失败");
+  }
+  return data.review;
+}
+
+async function submitCurrentAnswer() {
+  const company = getCurrentCompany();
+  const question = getCurrentQuestion(company);
+  const input = getAnswerInput();
+
+  if (!company || !question || !input) return;
+
+  const answer = input.value.trim();
+  if (!answer) {
+    window.alert("先写一点回答，再提交点评。");
+    return;
+  }
+
+  saveCurrentAnswer();
+  const questionKey = getQuestionKey(question);
+  const localReview = analyzeLocally(answer, question);
+  state.submittingKey = questionKey;
+  renderCurrentSlide();
+
+  try {
+    const aiReview = await requestAiReview(company, question, answer, localReview);
+    progress[company.id].reviews[question.question] = {
+      ...localReview,
+      ...aiReview,
+      source: aiReview.source || "AI 点评",
+    };
+  } catch (error) {
+    progress[company.id].reviews[question.question] = {
+      ...localReview,
+      summary: `AI 点评暂时失败，这次先用本地结论。${localReview.summary}\n\n错误信息：${error.message}`,
+    };
+  } finally {
+    state.submittingKey = null;
+  }
+
+  updateRoundProgress(company, question.question);
   saveProgress();
-  setSaveNote("这一题已清空");
-  renderDetailMeta(company);
-  renderQuestionJumps(company);
+  renderCurrentSlide();
   renderBoard();
-}
 
-function switchQuestion(delta) {
-  const company = getCurrentCompany();
-  if (!company) return;
-
-  saveCurrentAnswer();
-  state.questionIndex =
-    (state.questionIndex + delta + company.questions.length) % company.questions.length;
-  progress[company.id].lastQuestion = state.questionIndex;
-  saveProgress();
-  renderQuestion(company);
-}
-
-function jumpToQuestion(index) {
-  const company = getCurrentCompany();
-  if (!company) return;
-  if (index < 0 || index >= company.questions.length) return;
-
-  saveCurrentAnswer();
-  state.questionIndex = index;
-  progress[company.id].lastQuestion = state.questionIndex;
-  saveProgress();
-  renderQuestion(company);
+  if (state.slideIndex === company.questions.length) {
+    openFinishModal(
+      `${company.name} 这一轮已经答完了，当前共完成 ${progress[company.id].completedRounds} 轮。`,
+    );
+  }
 }
 
 function updateCompanyStatus(status) {
@@ -940,8 +1135,139 @@ function updateCompanyStatus(status) {
 
   progress[company.id].status = status;
   saveProgress();
-  renderDetailMeta(company);
+  renderCurrentSlide();
   renderBoard();
+}
+
+function changeSlide(delta) {
+  const company = getCurrentCompany();
+  if (!company) return;
+
+  const totalSlides = getTotalSlides(company);
+  const next = Math.max(0, Math.min(totalSlides - 1, state.slideIndex + delta));
+  if (next === state.slideIndex) return;
+
+  saveCurrentAnswer();
+  stopVoiceInput();
+  state.slideIndex = next;
+  progress[company.id].lastSlide = next;
+  saveProgress();
+  renderCurrentSlide();
+}
+
+function openFinishModal(message) {
+  els.finishMessage.textContent = message;
+  els.finishModal.classList.remove("hidden");
+}
+
+function closeFinishModal() {
+  els.finishModal.classList.add("hidden");
+}
+
+function initVoiceInput() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) return;
+
+  const recognition = new Recognition();
+  recognition.lang = "zh-CN";
+  recognition.interimResults = true;
+  recognition.continuous = true;
+
+  let seedText = "";
+  let finalTranscript = "";
+
+  recognition.onstart = () => {
+    const input = getAnswerInput();
+    seedText = input ? input.value.trim() : "";
+    finalTranscript = "";
+  };
+
+  recognition.onresult = (event) => {
+    const input = getAnswerInput();
+    if (!input) return;
+
+    let interimTranscript = "";
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const transcript = event.results[index][0].transcript;
+      if (event.results[index].isFinal) {
+        finalTranscript += transcript;
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+
+    const pieces = [seedText, finalTranscript, interimTranscript].filter(Boolean);
+    input.value = pieces.join(seedText ? "\n" : "");
+    saveCurrentAnswer();
+  };
+
+  recognition.onend = () => {
+    state.listeningKey = null;
+    renderCurrentSlide();
+  };
+
+  recognition.onerror = () => {
+    state.listeningKey = null;
+    renderCurrentSlide();
+  };
+
+  state.recognition = recognition;
+}
+
+function startVoiceInput() {
+  const question = getCurrentQuestion();
+  if (!state.recognition || !question) return;
+
+  stopVoiceInput();
+  state.listeningKey = getQuestionKey(question);
+  renderCurrentSlide();
+  state.recognition.start();
+}
+
+function stopVoiceInput() {
+  if (!state.recognition) return;
+
+  try {
+    state.recognition.stop();
+  } catch {
+    // Ignore stop errors when recognition is not active.
+  }
+
+  if (state.listeningKey) {
+    state.listeningKey = null;
+    renderCurrentSlide();
+  }
+}
+
+function bindSwipe() {
+  els.cardStage.addEventListener("pointerdown", (event) => {
+    if (!state.selectedCompanyId) return;
+    if (event.target.closest("button, textarea")) return;
+
+    state.pointerActive = true;
+    state.pointerStartX = event.clientX;
+    state.pointerStartY = event.clientY;
+  });
+
+  const finishSwipe = (event) => {
+    if (!state.pointerActive) return;
+    state.pointerActive = false;
+
+    const diffX = event.clientX - state.pointerStartX;
+    const diffY = event.clientY - state.pointerStartY;
+    if (Math.abs(diffX) < 56 || Math.abs(diffX) < Math.abs(diffY)) return;
+
+    if (diffX > 0) {
+      changeSlide(1);
+    } else {
+      changeSlide(-1);
+    }
+  };
+
+  els.cardStage.addEventListener("pointerup", finishSwipe);
+  els.cardStage.addEventListener("pointercancel", () => {
+    state.pointerActive = false;
+  });
 }
 
 function bindEvents() {
@@ -958,46 +1284,55 @@ function bindEvents() {
       return;
     }
 
-    const jumpButton = event.target.closest("[data-question-jump]");
-    if (jumpButton) {
-      jumpToQuestion(Number(jumpButton.dataset.questionJump));
+    if (event.target.closest("[data-start-questions]")) {
+      changeSlide(1);
+      return;
+    }
+
+    if (event.target.closest("[data-submit-answer]")) {
+      submitCurrentAnswer();
+      return;
+    }
+
+    if (event.target.closest("[data-voice-start]")) {
+      startVoiceInput();
+      return;
+    }
+
+    if (event.target.closest("[data-voice-stop]")) {
+      stopVoiceInput();
+    }
+  });
+
+  document.addEventListener("input", (event) => {
+    if (event.target.matches("[data-answer-input]")) {
+      saveCurrentAnswer();
     }
   });
 
   document.getElementById("back-button").addEventListener("click", showBoard);
-  document.getElementById("prev-question").addEventListener("click", () => switchQuestion(-1));
-  document.getElementById("next-question").addEventListener("click", () => switchQuestion(1));
-  document.getElementById("flip-card").addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleCard(true);
-  });
-  document.getElementById("flip-card-back").addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleCard(false);
-  });
-  document.getElementById("clear-answer").addEventListener("click", clearCurrentAnswer);
+  document.getElementById("prev-slide").addEventListener("click", () => changeSlide(-1));
+  document.getElementById("next-slide").addEventListener("click", () => changeSlide(1));
+  document.getElementById("finish-home").addEventListener("click", showBoard);
+  document.getElementById("finish-stay").addEventListener("click", closeFinishModal);
   document.getElementById("reset-progress").addEventListener("click", () => {
     if (!window.confirm("要清空所有公司的答题记录、轮次和状态吗？")) return;
     localStorage.removeItem(storageKey);
     Object.keys(progress).forEach((key) => delete progress[key]);
-    setSaveNote("记录已清空");
+    closeFinishModal();
     if (state.selectedCompanyId) {
       renderCompany(state.selectedCompanyId);
       return;
     }
     renderBoard();
   });
-
-  els.answerInput.addEventListener("input", saveCurrentAnswer);
-  els.flashcard.addEventListener("click", (event) => {
-    if (event.target.closest("button")) return;
-    toggleCard();
-  });
 }
 
 function init() {
   renderBoard();
   bindEvents();
+  bindSwipe();
+  initVoiceInput();
 
   if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
     navigator.serviceWorker.register("./service-worker.js").catch(() => {

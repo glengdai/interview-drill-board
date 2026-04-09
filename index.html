@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>面试刷题板</title>
+    <title>Interview Drill Board</title>
     <meta name="theme-color" content="#d96f32" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="面试刷题板" />
+    <meta name="apple-mobile-web-app-title" content="Interview Drill" />
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./icon.svg" />
@@ -15,94 +15,39 @@
   </head>
   <body>
     <div class="app-shell">
-      <header class="topbar">
-        <div>
-          <p class="topbar__eyebrow">Interview Drill</p>
-          <h1>面试刷题板</h1>
-          <p class="topbar__summary">
-            首页看投递节奏，点公司进去直接刷题。只保留公司卡片、状态、简历版本和翻卡练习。
-          </p>
+      <section id="board-view" class="screen board-view">
+        <div class="utility-bar">
+          <button id="reset-progress" class="ghost-button" type="button">清空记录</button>
         </div>
-        <button id="reset-progress" class="text-button" type="button">清空记录</button>
-      </header>
+        <div id="board-sections" class="board-sections"></div>
+      </section>
 
-      <main>
-        <section id="board-view" class="board-view">
-          <div class="section-heading">
-            <div>
-              <p class="section-heading__eyebrow">This Week</p>
-              <h2>每周投递看板</h2>
-            </div>
-            <p class="section-heading__summary">
-              每张卡片会显示投递状态、简历版本、已刷轮次和已答题进度。
-            </p>
+      <section id="detail-view" class="screen detail-view hidden">
+        <div class="detail-toolbar">
+          <button id="back-button" class="ghost-button" type="button">返回首页</button>
+          <div id="slide-indicator" class="slide-indicator"></div>
+          <div class="detail-toolbar__nav">
+            <button id="prev-slide" class="ghost-button" type="button">上一张</button>
+            <button id="next-slide" class="primary-button" type="button">下一张</button>
           </div>
-          <div id="board-sections" class="board-sections"></div>
-        </section>
+        </div>
 
-        <section id="detail-view" class="detail-view hidden">
-          <div class="detail-header">
-            <button id="back-button" class="text-button" type="button">返回首页</button>
-            <div>
-              <p id="detail-phase" class="detail-header__eyebrow"></p>
-              <h2 id="company-name"></h2>
-              <p id="company-role" class="detail-header__role"></p>
-            </div>
+        <div id="card-stage" class="card-stage">
+          <article id="swipe-card" class="swipe-card"></article>
+        </div>
+      </section>
+
+      <div id="finish-modal" class="finish-modal hidden">
+        <div class="finish-modal__panel">
+          <p class="finish-modal__eyebrow">这一轮完成了</p>
+          <h2>回首页还是继续这家公司？</h2>
+          <p id="finish-message" class="finish-modal__summary"></p>
+          <div class="finish-modal__actions">
+            <button id="finish-home" class="ghost-button" type="button">回首页</button>
+            <button id="finish-stay" class="primary-button" type="button">继续这家公司</button>
           </div>
-
-          <div class="detail-strip">
-            <div id="company-resume" class="info-pill"></div>
-            <div id="company-schedule" class="info-pill"></div>
-            <div id="company-progress" class="info-pill"></div>
-          </div>
-
-          <section class="status-panel">
-            <p class="status-panel__label">投递状态</p>
-            <div id="company-status-switch" class="status-switch"></div>
-          </section>
-
-          <section class="practice-panel">
-            <div class="question-toolbar">
-              <button id="prev-question" class="icon-button" type="button">上一题</button>
-              <div class="question-toolbar__center">
-                <strong id="question-counter"></strong>
-                <span id="question-type" class="type-pill"></span>
-              </div>
-              <button id="next-question" class="icon-button" type="button">下一题</button>
-            </div>
-
-            <div class="flashcard-shell">
-              <article id="flashcard" class="flashcard">
-                <div class="flashcard__face flashcard__face--front">
-                  <p class="flashcard__label">问题</p>
-                  <h3 id="card-question"></h3>
-                  <div id="card-prompts" class="prompt-list"></div>
-                  <button id="flip-card" class="primary-button" type="button">翻到答案</button>
-                </div>
-                <div class="flashcard__face flashcard__face--back">
-                  <p class="flashcard__label">参考答案</p>
-                  <div id="card-answer" class="reference-answer"></div>
-                  <button id="flip-card-back" class="ghost-button" type="button">回到问题</button>
-                </div>
-              </article>
-            </div>
-
-            <div class="answer-panel">
-              <label for="answer-input">你的回答</label>
-              <textarea
-                id="answer-input"
-                placeholder="直接在这里写，页面会自动保存这一题。"
-              ></textarea>
-              <div class="answer-panel__footer">
-                <span id="save-note">自动保存中</span>
-                <button id="clear-answer" class="ghost-button" type="button">清空这一题</button>
-              </div>
-            </div>
-
-            <div id="question-jumps" class="question-jumps"></div>
-          </section>
-        </section>
-      </main>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="./app.js"></script>
