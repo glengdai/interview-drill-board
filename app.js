@@ -516,15 +516,12 @@ const companies = [
 ].sort((left, right) => left.priority - right.priority);
 
 const storageKey = "interview-drill-progress";
-const aiStorageKey = "interview-drill-ai-settings";
+const statusOptions = ["待投", "进行中", "Offer", "失败"];
 
 const state = {
   selectedCompanyId: null,
   questionIndex: 0,
   flipped: false,
-  recognition: null,
-  aiProxyReady: null,
-  aiServerConfigured: false,
 };
 
 function loadStoredValue(key, fallback) {
@@ -540,91 +537,116 @@ function saveStoredValue(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function getDefaultAiSettings() {
-  return {
-    mode: "hybrid",
-    proxyUrl:
-      window.location.protocol === "http:" || window.location.protocol === "https:"
-        ? `${window.location.origin}/api/review`
-        : "http://127.0.0.1:8787/api/review",
-    baseUrl: "https://api.openai.com/v1",
-    apiKey: "",
-    model: "gpt-4.1-mini",
-  };
-}
-
 const progress = loadStoredValue(storageKey, {});
-const aiSettings = {
-  ...getDefaultAiSettings(),
-  ...loadStoredValue(aiStorageKey, {}),
-};
 
 const els = {
-  resumeLegend: document.getElementById("resume-legend"),
-  batchList: document.getElementById("batch-list"),
-  companyGrid: document.getElementById("company-grid"),
-  dashboardView: document.getElementById("dashboard-view"),
-  companyView: document.getElementById("company-view"),
+  boardView: document.getElementById("board-view"),
+  boardSections: document.getElementById("board-sections"),
+  detailView: document.getElementById("detail-view"),
   companyName: document.getElementById("company-name"),
   companyRole: document.getElementById("company-role"),
-  companyBatchTag: document.getElementById("company-batch-tag"),
-  companyMeta: document.getElementById("company-meta"),
+  detailPhase: document.getElementById("detail-phase"),
+  companyResume: document.getElementById("company-resume"),
+  companySchedule: document.getElementById("company-schedule"),
+  companyProgress: document.getElementById("company-progress"),
+  companyStatusSwitch: document.getElementById("company-status-switch"),
   questionCounter: document.getElementById("question-counter"),
   questionType: document.getElementById("question-type"),
   flashcard: document.getElementById("flashcard"),
   cardQuestion: document.getElementById("card-question"),
   cardPrompts: document.getElementById("card-prompts"),
   cardAnswer: document.getElementById("card-answer"),
-  cardKeyPoints: document.getElementById("card-key-points"),
   answerInput: document.getElementById("answer-input"),
-  scoreValue: document.getElementById("score-value"),
-  scoreBadges: document.getElementById("score-badges"),
-  reviewSummary: document.getElementById("review-summary"),
-  reviewSource: document.getElementById("review-source"),
-  reviewRewriteWrap: document.getElementById("review-rewrite-wrap"),
-  reviewRewrite: document.getElementById("review-rewrite"),
-  greetingText: document.getElementById("greeting-text"),
-  introText: document.getElementById("intro-text"),
-  progressList: document.getElementById("progress-list"),
-  voiceStatus: document.getElementById("voice-status"),
-  heroResume: document.getElementById("hero-resume"),
-  analyzeButton: document.getElementById("analyze-answer"),
-  reviewMode: document.getElementById("review-mode"),
-  proxyUrl: document.getElementById("proxy-url"),
-  aiBaseUrl: document.getElementById("ai-base-url"),
-  aiApiKey: document.getElementById("ai-api-key"),
-  aiModel: document.getElementById("ai-model"),
-  aiStatus: document.getElementById("ai-status"),
-  saveAiSettings: document.getElementById("save-ai-settings"),
-  checkAiService: document.getElementById("check-ai-service"),
+  saveNote: document.getElementById("save-note"),
+  questionJumps: document.getElementById("question-jumps"),
 };
 
 function saveProgress() {
   saveStoredValue(storageKey, progress);
 }
 
-function saveAiSettings() {
-  saveStoredValue(aiStorageKey, aiSettings);
+function getCompanyById(companyId) {
+  return companies.find((company) => company.id === companyId);
+}
+
+function getCurrentCompany() {
+  return state.selectedCompanyId ? getCompanyById(state.selectedCompanyId) : null;
+}
+
+function getLegacyRounds(companyId) {
+  const company = getCompanyById(companyId);
+  const entry = progress[companyId];
+  if (!company || !entry?.reviewCounts || !company.questions.length) return 0;
+
+  return Math.min(
+    ...company.questions.map((question) => entry.reviewCounts[question.question] || 0),
+  );
 }
 
 function ensureCompanyProgress(companyId) {
   if (!progress[companyId]) {
-    progress[companyId] = { answers: {}, scores: {}, reviewCounts: {}, lastQuestion: 0 };
-    return;
+    progress[companyId] = {};
   }
 
-  if (!progress[companyId].answers) progress[companyId].answers = {};
-  if (!progress[companyId].scores) progress[companyId].scores = {};
-  if (!progress[companyId].reviewCounts) progress[companyId].reviewCounts = {};
-  if (typeof progress[companyId].lastQuestion !== "number") progress[companyId].lastQuestion = 0;
+  const entry = progress[companyId];
+  if (!entry.answers) entry.answers = {};
+  if (typeof entry.lastQuestion !== "number") entry.lastQuestion = 0;
+  if (!entry.status || !statusOptions.includes(entry.status)) entry.status = "待投";
+  if (!entry.roundSeen) entry.roundSeen = {};
+
+  if (typeof entry.completedRounds !== "number") {
+    entry.completedRounds = getLegacyRounds(companyId);
+  }
 }
 
-function batchClassName(batch) {
-  return `badge badge--batch-${batch}`;
+function parseScheduleDate(schedule) {
+  const match = String(schedule || "").match(/\d{4}-\d{2}-\d{2}/);
+  if (!match) return null;
+
+  const [year, month, day] = match[0].split("-").map(Number);
+  return new Date(year, month - 1, day);
 }
 
-function getCompanyById(companyId) {
-  return companies.find((company) => company.id === companyId);
+function startOfWeek(date) {
+  const weekDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = weekDate.getDay() || 7;
+  weekDate.setDate(weekDate.getDate() - day + 1);
+  return weekDate;
+}
+
+function addDays(date, days) {
+  const next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function formatMonthDay(date) {
+  return `${date.getMonth() + 1}.${date.getDate()}`;
+}
+
+function getWeekInfo(company) {
+  const date = parseScheduleDate(company.schedule);
+  if (!date) {
+    return {
+      key: "later",
+      order: Number.MAX_SAFE_INTEGER,
+      title: "待安排",
+      description: "这批岗位还没排到明确周次",
+    };
+  }
+
+  const start = startOfWeek(date);
+  const end = addDays(start, 6);
+  const key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(
+    start.getDate(),
+  ).padStart(2, "0")}`;
+
+  return {
+    key,
+    order: start.getTime(),
+    title: `${formatMonthDay(start)} - ${formatMonthDay(end)}`,
+    description: "按顺序投，先试水，再重点，最后冲刺",
+  };
 }
 
 function getAnsweredCount(company) {
@@ -637,804 +659,349 @@ function getAnsweredCount(company) {
 
 function getCompanyStats(company) {
   ensureCompanyProgress(company.id);
-
-  const answeredCount = getAnsweredCount(company);
-  const reviewedQuestions = company.questions.filter((question) => {
-    const reviewCount = progress[company.id].reviewCounts[question.question] || 0;
-    return reviewCount > 0;
-  }).length;
-
-  const totalReviews = company.questions.reduce((sum, question) => {
-    return sum + (progress[company.id].reviewCounts[question.question] || 0);
-  }, 0);
-
-  const completedRounds = company.questions.length
-    ? Math.min(
-        ...company.questions.map(
-          (question) => progress[company.id].reviewCounts[question.question] || 0,
-        ),
-      )
-    : 0;
-
-  const scoredValues = company.questions
-    .map((question) => progress[company.id].scores[question.question]?.total)
-    .filter((value) => Number.isFinite(value));
-
-  const avgScore = scoredValues.length
-    ? Math.round(scoredValues.reduce((sum, value) => sum + value, 0) / scoredValues.length)
-    : null;
-
   return {
-    answeredCount,
-    reviewedQuestions,
-    totalReviews,
-    completedRounds,
-    avgScore,
+    answeredCount: getAnsweredCount(company),
+    completedRounds: progress[company.id].completedRounds || 0,
+    status: progress[company.id].status,
   };
 }
 
-function renderResumeLegend() {
-  els.resumeLegend.innerHTML = resumes
+function setSaveNote(message) {
+  els.saveNote.textContent = message;
+}
+
+function setFlipped(nextValue) {
+  state.flipped = nextValue;
+  els.flashcard.classList.toggle("is-flipped", nextValue);
+}
+
+function renderBoard() {
+  const groups = new Map();
+
+  companies.forEach((company) => {
+    const week = getWeekInfo(company);
+    if (!groups.has(week.key)) {
+      groups.set(week.key, { ...week, companies: [] });
+    }
+    groups.get(week.key).companies.push(company);
+  });
+
+  const sections = [...groups.values()]
+    .sort((left, right) => left.order - right.order)
+    .map((group) => {
+      const groupCards = group.companies
+        .sort((left, right) => left.priority - right.priority)
+        .map((company) => {
+          const stats = getCompanyStats(company);
+
+          return `
+            <button
+              class="company-card ${state.selectedCompanyId === company.id ? "is-active" : ""}"
+              data-company-select="${company.id}"
+              type="button"
+            >
+              <div class="company-card__top">
+                <span class="badge badge--${company.batch}">${company.batch}</span>
+                <span class="badge status-badge--${stats.status}">${stats.status}</span>
+              </div>
+              <h3 class="company-card__name">${company.name}</h3>
+              <p class="company-card__role">${company.role}</p>
+              <div class="company-card__meta">
+                <span class="badge badge--neutral">简历 ${company.resume}</span>
+                <span class="badge badge--neutral">${company.schedule}</span>
+              </div>
+              <div class="company-card__bottom">
+                <div class="company-stat">
+                  <strong>${stats.completedRounds}</strong>
+                  <span>已刷轮次</span>
+                </div>
+                <div class="company-stat">
+                  <strong>${stats.answeredCount}/${company.questions.length}</strong>
+                  <span>已答题数</span>
+                </div>
+              </div>
+            </button>
+          `;
+        })
+        .join("");
+
+      return `
+        <section class="board-section">
+          <div class="board-section__head">
+            <div>
+              <h3 class="board-section__title">${group.title}</h3>
+              <p class="board-section__meta">${group.description}</p>
+            </div>
+            <span class="badge badge--neutral">${group.companies.length} 家</span>
+          </div>
+          <div class="company-grid">${groupCards}</div>
+        </section>
+      `;
+    })
+    .join("");
+
+  els.boardSections.innerHTML = sections;
+}
+
+function renderDetailMeta(company) {
+  const stats = getCompanyStats(company);
+  const week = getWeekInfo(company);
+
+  els.detailPhase.textContent = `${week.title} · ${company.batch}`;
+  els.companyName.textContent = company.name;
+  els.companyRole.textContent = company.role;
+  els.companyResume.textContent = `简历 ${company.resume}`;
+  els.companySchedule.textContent = company.schedule;
+  els.companyProgress.textContent = `已刷 ${stats.completedRounds} 轮 · 已答 ${stats.answeredCount}/${company.questions.length}`;
+
+  els.companyStatusSwitch.innerHTML = statusOptions
     .map(
-      (resume) => `
-        <div class="resume-item">
-          <span class="resume-item__code">${resume.code}</span>
-          <strong>${resume.name}</strong>
-          <span>${resume.detail}</span>
-        </div>
+      (status) => `
+        <button
+          class="status-option ${stats.status === status ? "is-active" : ""}"
+          data-status-select="${status}"
+          type="button"
+        >
+          ${status}
+        </button>
       `,
     )
     .join("");
 }
 
-function renderBatchList() {
-  const batches = ["试水", "重点", "冲刺"];
-  els.batchList.innerHTML = batches
-    .map((batch) => {
-      const items = companies.filter((company) => company.batch === batch);
+function renderQuestionJumps(company) {
+  ensureCompanyProgress(company.id);
+
+  els.questionJumps.innerHTML = company.questions
+    .map((question, index) => {
+      const answered = Boolean(progress[company.id].answers[question.question]?.trim());
       return `
-        <section class="batch-group">
-          <h3>${batch}</h3>
-          <p class="batch-group__meta">共 ${items.length} 家，先按顺序刷</p>
-          <div class="batch-group__list">
-            ${items
-              .map((company) => {
-                const stats = getCompanyStats(company);
-                return `
-                  <button class="company-mini ${
-                    state.selectedCompanyId === company.id ? "is-active" : ""
-                  }" data-company-select="${company.id}" type="button">
-                    <div class="company-mini__top">
-                      <span class="company-mini__name">${company.name}</span>
-                      <span class="badge">${company.resume}</span>
-                    </div>
-                    <div class="company-mini__role">${company.role}</div>
-                    <div class="company-mini__meta">顺序 ${company.priority} · ${company.schedule} · 已答 ${stats.answeredCount}/${company.questions.length} · 完整 ${stats.completedRounds} 轮</div>
-                  </button>
-                `;
-              })
-              .join("")}
-          </div>
-        </section>
+        <button
+          class="question-jump ${index === state.questionIndex ? "is-active" : ""} ${
+            answered ? "is-answered" : ""
+          }"
+          data-question-jump="${index}"
+          type="button"
+        >
+          ${index + 1}
+        </button>
       `;
     })
     .join("");
-}
-
-function renderCompanyGrid() {
-  els.companyGrid.innerHTML = companies
-    .map((company) => {
-      const stats = getCompanyStats(company);
-      return `
-        <article class="company-card ${
-          state.selectedCompanyId === company.id ? "is-active" : ""
-        }" data-company-select="${company.id}">
-          <div class="company-card__top">
-            <span class="${batchClassName(company.batch)}">${company.batch}</span>
-            <span class="badge">${company.resume}</span>
-          </div>
-          <div class="company-card__name">${company.name}</div>
-          <div class="company-card__role">${company.role}</div>
-          <p class="company-card__summary">${company.summary}</p>
-          <div class="company-card__meta">顺序 ${company.priority} · ${company.schedule} · 题量 ${company.questions.length} · 完整 ${stats.completedRounds} 轮 · 总点评 ${stats.totalReviews} 次</div>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-function renderCompanyMeta(company) {
-  const stats = getCompanyStats(company);
-  els.companyMeta.innerHTML = `
-    <div class="meta-card">
-      <span class="meta-card__label">投递批次</span>
-      <strong>${company.batch}</strong>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">建议顺序</span>
-      <strong>第 ${company.priority} 个</strong>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">简历版本</span>
-      <strong>${company.resume}</strong>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">题量</span>
-      <strong>${company.questions.length} 题</strong>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">已作答</span>
-      <strong>${stats.answeredCount}/${company.questions.length}</strong>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">已点评题数</span>
-      <strong>${stats.reviewedQuestions}/${company.questions.length}</strong>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">完整刷题轮次</span>
-      <strong>${stats.completedRounds} 轮</strong>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">总点评次数</span>
-      <strong>${stats.totalReviews} 次</strong>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">当前平均分</span>
-      <strong>${stats.avgScore ?? "--"}</strong>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">策略</span>
-      <span>${company.strategy}</span>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">为什么投</span>
-      <span>${company.fitReason}</span>
-    </div>
-    <div class="meta-card">
-      <span class="meta-card__label">建议时间</span>
-      <strong>${company.schedule}</strong>
-    </div>
-  `;
 }
 
 function renderQuestion(company) {
   ensureCompanyProgress(company.id);
   const question = company.questions[state.questionIndex];
   const savedAnswer = progress[company.id].answers[question.question] || "";
-  const savedScore = progress[company.id].scores[question.question];
 
   els.questionCounter.textContent = `${state.questionIndex + 1} / ${company.questions.length}`;
   els.questionType.textContent = question.type;
   els.cardQuestion.textContent = question.question;
-  els.cardPrompts.innerHTML = question.prompts.map((item) => `<li>${item}</li>`).join("");
+  els.cardPrompts.innerHTML = question.prompts.map((item) => `<span>${item}</span>`).join("");
   els.cardAnswer.textContent = question.answer;
-  els.cardKeyPoints.innerHTML = question.keyPoints
-    .map((point) => `<span class="pill">${point}</span>`)
-    .join("");
   els.answerInput.value = savedAnswer;
-  els.greetingText.textContent = company.greeting;
-  els.introText.textContent = company.intro;
-
-  state.flipped = false;
-  els.flashcard.classList.remove("is-flipped");
-
-  if (savedScore) {
-    renderReview(savedScore);
-  } else {
-    resetReview();
-  }
-}
-
-function renderProgress(company) {
-  ensureCompanyProgress(company.id);
-  els.progressList.innerHTML = company.questions
-    .map((question, index) => {
-      const answer = progress[company.id].answers[question.question] || "";
-      const score = progress[company.id].scores[question.question];
-      const reviewCount = progress[company.id].reviewCounts[question.question] || 0;
-      return `
-        <div class="progress-item">
-          <div>
-            <strong>${index + 1}. ${question.type}</strong>
-            <small>${answer ? "已作答" : "未作答"} · 已点评 ${reviewCount} 次</small>
-          </div>
-          <div>${score ? `${score.total} 分` : "--"}</div>
-        </div>
-      `;
-    })
-    .join("");
+  setSaveNote(savedAnswer ? "已自动保存" : "这一题还没写");
+  setFlipped(false);
+  renderQuestionJumps(company);
 }
 
 function renderCompany(companyId) {
   const company = getCompanyById(companyId);
   if (!company) return;
 
-  state.selectedCompanyId = company.id;
   ensureCompanyProgress(company.id);
-  if (typeof progress[company.id].lastQuestion === "number") {
-    state.questionIndex = Math.min(
-      progress[company.id].lastQuestion,
-      company.questions.length - 1,
-    );
-  } else {
-    state.questionIndex = 0;
-  }
-
-  els.dashboardView.classList.add("hidden");
-  els.companyView.classList.remove("hidden");
-  els.companyName.textContent = company.name;
-  els.companyRole.textContent = company.role;
-  els.companyBatchTag.textContent = `${company.batch} · 简历 ${company.resume}`;
-
-  renderCompanyMeta(company);
-  renderQuestion(company);
-  renderProgress(company);
-  renderBatchList();
-  renderCompanyGrid();
-}
-
-function showDashboard() {
-  state.selectedCompanyId = null;
-  els.dashboardView.classList.remove("hidden");
-  els.companyView.classList.add("hidden");
-  renderBatchList();
-  renderCompanyGrid();
-}
-
-function renderReview(review) {
-  els.scoreValue.textContent = review.total;
-  els.scoreBadges.innerHTML = (review.badges || []).map((badge) => `<span>${badge}</span>`).join("");
-  els.reviewSummary.textContent = review.summary;
-  els.reviewSource.textContent = review.source || "本地规则";
-
-  if (review.rewrite) {
-    els.reviewRewriteWrap.classList.remove("hidden");
-    els.reviewRewrite.textContent = review.rewrite;
-  } else {
-    els.reviewRewriteWrap.classList.add("hidden");
-    els.reviewRewrite.textContent = "";
-  }
-}
-
-function resetReview() {
-  els.scoreValue.textContent = "--";
-  els.scoreBadges.innerHTML = "";
-  els.reviewSummary.textContent =
-    "写完回答后点“智能点评”，这里会看你的结构、关键词覆盖、结果感和表达习惯。";
-  els.reviewSource.textContent = "本地规则";
-  els.reviewRewriteWrap.classList.add("hidden");
-  els.reviewRewrite.textContent = "";
-}
-
-function countMatches(answer, list) {
-  return list.filter((item) => answer.includes(item)).length;
-}
-
-function analyzeAnswer(answer, question) {
-  const clean = answer.trim();
-  const length = clean.length;
-  const keyMatches = countMatches(clean, question.keyPoints);
-  const structureTokens = ["我目前", "负责", "项目", "比如", "所以", "我觉得", "原因", "结果", "最终"];
-  const fillerTokens = ["就是", "然后", "那个", "嗯", "啊"];
-  const resultTokens = ["提升", "降低", "效率", "数据", "%", "结果", "服务", "指标"];
-
-  const structureHits = countMatches(clean, structureTokens);
-  const fillerHits = countMatches(clean, fillerTokens);
-  const resultHits = countMatches(clean, resultTokens);
-  const hasNumbers = /\d/.test(clean);
-
-  const lengthScore = Math.max(0, Math.min(25, 25 - Math.abs(150 - length) / 6));
-  const keywordScore = Math.min(35, keyMatches * 6 + (keyMatches >= 4 ? 5 : 0));
-  const structureScore = Math.min(22, structureHits * 4 + (clean.includes("因为") ? 4 : 0));
-  const resultScore = Math.min(18, resultHits * 3 + (hasNumbers ? 4 : 0));
-  const penalty = Math.min(12, Math.max(0, fillerHits - 2) * 2);
-
-  const total = Math.max(
-    32,
-    Math.min(99, Math.round(lengthScore + keywordScore + structureScore + resultScore - penalty)),
+  state.selectedCompanyId = company.id;
+  state.questionIndex = Math.min(
+    progress[company.id].lastQuestion || 0,
+    Math.max(0, company.questions.length - 1),
   );
 
-  const strengths = [];
-  const improvements = [];
+  els.boardView.classList.add("hidden");
+  els.detailView.classList.remove("hidden");
 
-  if (keyMatches >= Math.ceil(question.keyPoints.length / 2)) {
-    strengths.push("关键词覆盖不错，回答和岗位问题基本对焦。");
-  } else {
-    improvements.push(
-      `关键点还不够全，建议补上：${question.keyPoints
-        .filter((point) => !clean.includes(point))
-        .slice(0, 4)
-        .join("、")}。`,
-    );
-  }
-
-  if (structureHits >= 3) {
-    strengths.push("表达有基本结构，不是平铺直叙。");
-  } else {
-    improvements.push("可以按“背景 -> 做法 -> 结果 -> 为什么适合”来回答，会更顺。");
-  }
-
-  if (hasNumbers || resultHits >= 2) {
-    strengths.push("有结果感，能让面试官更快判断你的真实产出。");
-  } else {
-    improvements.push("这一题可以再补一个结果、指标或效果判断，别只讲过程。");
-  }
-
-  if (length < 60) {
-    improvements.push("回答偏短，容易显得准备不足，建议再展开 2 到 3 句。");
-  } else if (length > 320) {
-    improvements.push("回答偏长，建议收紧到 3 个重点，避免绕。");
-  }
-
-  if (fillerHits >= 4) {
-    improvements.push("口头填充词有点多，正式表达时尽量减少“就是 / 然后 / 那个”。");
-  }
-
-  if (!strengths.length) {
-    strengths.push("主线是对的，已经能围绕岗位来回答了。");
-  }
-
-  const badges = [
-    `关键词 ${Math.min(question.keyPoints.length, keyMatches)}/${question.keyPoints.length}`,
-    `结构 ${Math.round(structureScore)}/22`,
-    `结果感 ${Math.round(resultScore)}/18`,
-  ];
-
-  const summary = [
-    `总体评价：${total >= 85 ? "已经比较能打" : total >= 72 ? "方向对了，再收紧一点会更好" : "还需要再组织一下表达"}`,
-    "",
-    `优点：${strengths.join("")}`,
-    "",
-    `建议：${improvements.join("") || "可以开始练口语版本，把句子说得更自然。"}`
-  ].join("\n");
-
-  return {
-    total,
-    badges,
-    summary,
-    rewrite: "",
-    source: "本地规则",
-  };
+  renderDetailMeta(company);
+  renderQuestion(company);
+  renderBoard();
 }
 
-function normalizeAiReview(review, fallbackReview) {
-  return {
-    total: Number.isFinite(Number(review.total))
-      ? Math.max(0, Math.min(100, Math.round(Number(review.total))))
-      : fallbackReview.total,
-    badges: Array.isArray(review.badges) && review.badges.length
-      ? review.badges.slice(0, 4)
-      : fallbackReview.badges,
-    summary: review.summary || fallbackReview.summary,
-    rewrite: review.rewrite || "",
-    source: review.source || "真实 AI",
-  };
+function showBoard() {
+  const company = getCurrentCompany();
+  if (company) {
+    saveCurrentAnswer();
+  }
+
+  els.detailView.classList.add("hidden");
+  els.boardView.classList.remove("hidden");
+  renderBoard();
 }
 
-function combineReviews(localReview, aiReview) {
-  const mergedBadges = [...new Set([...(aiReview.badges || []), ...(localReview.badges || [])])].slice(0, 4);
-  return {
-    total: Math.round(localReview.total * 0.35 + aiReview.total * 0.65),
-    badges: mergedBadges,
-    summary: `AI评价：${aiReview.summary}\n\n本地补充：${localReview.summary}`,
-    rewrite: aiReview.rewrite || "",
-    source: "AI + 本地",
-  };
+function markQuestionSeen(company) {
+  ensureCompanyProgress(company.id);
+  const question = company.questions[state.questionIndex];
+  const seen = progress[company.id].roundSeen;
+
+  if (seen[question.question]) return;
+
+  seen[question.question] = true;
+
+  if (company.questions.every((item) => seen[item.question])) {
+    progress[company.id].completedRounds += 1;
+    progress[company.id].roundSeen = {};
+    setSaveNote(`已完成第 ${progress[company.id].completedRounds} 轮`);
+  } else {
+    setSaveNote("已翻到答案");
+  }
+
+  saveProgress();
+  renderDetailMeta(company);
+  renderBoard();
+}
+
+function toggleCard(forceValue = null) {
+  const company = getCurrentCompany();
+  if (!company) return;
+
+  const nextValue = typeof forceValue === "boolean" ? forceValue : !state.flipped;
+  if (nextValue && !state.flipped) {
+    markQuestionSeen(company);
+  }
+  setFlipped(nextValue);
 }
 
 function saveCurrentAnswer() {
-  const company = getCompanyById(state.selectedCompanyId);
+  const company = getCurrentCompany();
   if (!company) return;
 
   ensureCompanyProgress(company.id);
   const question = company.questions[state.questionIndex];
-  progress[company.id].answers[question.question] = els.answerInput.value.trim();
+  const previousAnswer = progress[company.id].answers[question.question] || "";
+  const nextAnswer = els.answerInput.value.trim();
+
+  if (nextAnswer) {
+    progress[company.id].answers[question.question] = nextAnswer;
+  } else {
+    delete progress[company.id].answers[question.question];
+  }
+
   progress[company.id].lastQuestion = state.questionIndex;
   saveProgress();
-  renderCompanyMeta(company);
-  renderProgress(company);
-  renderBatchList();
-  renderCompanyGrid();
+  setSaveNote(nextAnswer ? "已自动保存" : "这一题还没写");
+
+  if (Boolean(previousAnswer.trim()) !== Boolean(nextAnswer)) {
+    renderDetailMeta(company);
+    renderQuestionJumps(company);
+    renderBoard();
+  }
 }
 
-function clearCurrentReviewCache() {
-  const company = getCompanyById(state.selectedCompanyId);
+function clearCurrentAnswer() {
+  const company = getCurrentCompany();
   if (!company) return;
 
-  ensureCompanyProgress(company.id);
+  els.answerInput.value = "";
   const question = company.questions[state.questionIndex];
-  delete progress[company.id].scores[question.question];
+  delete progress[company.id].answers[question.question];
+  progress[company.id].lastQuestion = state.questionIndex;
   saveProgress();
-  renderCompanyMeta(company);
-  renderProgress(company);
-  renderBatchList();
-  renderCompanyGrid();
-}
-
-function collectAiSettingsFromForm() {
-  return {
-    mode: els.reviewMode.value,
-    proxyUrl: els.proxyUrl.value.trim(),
-    baseUrl: els.aiBaseUrl.value.trim(),
-    apiKey: els.aiApiKey.value.trim(),
-    model: els.aiModel.value.trim(),
-  };
-}
-
-function hydrateAiSettingsForm() {
-  els.reviewMode.value = aiSettings.mode;
-  els.proxyUrl.value = aiSettings.proxyUrl;
-  els.aiBaseUrl.value = aiSettings.baseUrl;
-  els.aiApiKey.value = aiSettings.apiKey;
-  els.aiModel.value = aiSettings.model;
-}
-
-function renderAiStatus(message) {
-  els.aiStatus.textContent = message;
-}
-
-function saveAiSettingsFromForm() {
-  Object.assign(aiSettings, collectAiSettingsFromForm());
-  saveAiSettings();
-  if (aiSettings.mode === "local") {
-    renderAiStatus("已保存。当前只用本地规则点评。");
-  } else {
-    renderAiStatus("AI 设置已保存。页面会优先尝试使用服务端 AI；如果服务端没配，也可以使用你手动填写的配置。");
-  }
-}
-
-function buildHealthUrl(proxyUrl) {
-  try {
-    const url = new URL(proxyUrl, window.location.href);
-    if (url.pathname.endsWith("/api/review")) {
-      url.pathname = url.pathname.replace(/\/api\/review$/, "/api/health");
-    } else {
-      url.pathname = "/api/health";
-    }
-    return url.toString();
-  } catch {
-    return "http://127.0.0.1:8787/api/health";
-  }
-}
-
-async function checkAiService(showMessage = true) {
-  const currentSettings = collectAiSettingsFromForm();
-  const healthUrl = buildHealthUrl(currentSettings.proxyUrl || aiSettings.proxyUrl);
-
-  if (showMessage) {
-    renderAiStatus("正在检查 AI 服务...");
-  }
-
-  try {
-    const response = await fetch(healthUrl);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    state.aiProxyReady = true;
-    state.aiServerConfigured = Boolean(data.aiConfigured);
-    if (showMessage) {
-      if (data.aiConfigured) {
-        renderAiStatus(
-          `AI 服务可用：${data.name || "Interview AI Proxy"} 已连接，服务端已配置 ${data.model || "模型"}，现在不需要再手动填 API Key。`,
-        );
-      } else {
-        renderAiStatus(
-          `服务已连通：${data.name || "Interview AI Proxy"} 可用，但服务端还没配置 AI 密钥。你也可以在页面里临时填自己的配置。`,
-        );
-      }
-    }
-    return true;
-  } catch (error) {
-    state.aiProxyReady = false;
-    state.aiServerConfigured = false;
-    if (showMessage) {
-      renderAiStatus(
-        "没有检测到可用的 AI 服务。若是本地使用，请先运行 `node server.js`；若已部署线上，请检查 `/api/health` 是否可访问。",
-      );
-    }
-    return false;
-  }
-}
-
-function hasUsableAiConfig(settings) {
-  return Boolean(
-    settings.proxyUrl &&
-      settings.baseUrl &&
-      settings.apiKey &&
-      settings.model,
-  );
-}
-
-async function requestAiReview(company, question, answer, localReview) {
-  const provider = hasUsableAiConfig(aiSettings)
-    ? {
-        baseUrl: aiSettings.baseUrl,
-        apiKey: aiSettings.apiKey,
-        model: aiSettings.model,
-      }
-    : null;
-
-  const payload = {
-    company: {
-      name: company.name,
-      role: company.role,
-      batch: company.batch,
-      resume: company.resume,
-      strategy: company.strategy,
-    },
-    question: {
-      type: question.type,
-      title: question.question,
-      prompts: question.prompts,
-      keyPoints: question.keyPoints,
-      referenceAnswer: question.answer,
-    },
-    candidateAnswer: answer,
-    localReview,
-    provider,
-  };
-
-  const response = await fetch(aiSettings.proxyUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.error || "AI 点评请求失败");
-  }
-
-  return data.review;
-}
-
-async function analyzeCurrentAnswer() {
-  const company = getCompanyById(state.selectedCompanyId);
-  if (!company) return;
-
-  const question = company.questions[state.questionIndex];
-  const answer = els.answerInput.value.trim();
-  saveCurrentAnswer();
-
-  if (!answer) {
-    els.reviewSummary.textContent = "先写一点回答再点评，我才能给你更像样的反馈。";
-    els.scoreValue.textContent = "--";
-    els.scoreBadges.innerHTML = "";
-    return;
-  }
-
-  const localReview = analyzeAnswer(answer, question);
-  let finalReview = localReview;
-
-  els.analyzeButton.disabled = true;
-  els.analyzeButton.textContent = "点评中...";
-
-  try {
-    if (aiSettings.mode !== "local") {
-      const hasClientConfig = hasUsableAiConfig(aiSettings);
-      const canUseServerConfig = state.aiServerConfigured === true;
-
-      if (!hasClientConfig && !canUseServerConfig) {
-        finalReview = {
-          ...localReview,
-          summary: `还没检测到可用的 AI 配置，所以这次先用本地规则点评。你可以部署服务端环境变量，或者手动填写自己的模型配置。\n\n${localReview.summary}`,
-          source: "本地规则",
-        };
-      } else {
-        const serviceReady = state.aiProxyReady === true ? true : await checkAiService(false);
-        if (!serviceReady) {
-          finalReview = {
-            ...localReview,
-            summary: `没有检测到本地 AI 代理，所以这次先用本地规则点评。你可以先运行 \`node server.js\`。\n\n${localReview.summary}`,
-            source: "本地规则",
-          };
-        } else {
-          const aiReviewRaw = await requestAiReview(company, question, answer, localReview);
-          const aiReview = normalizeAiReview(aiReviewRaw, localReview);
-          finalReview =
-            aiSettings.mode === "hybrid" ? combineReviews(localReview, aiReview) : aiReview;
-        }
-      }
-    }
-  } catch (error) {
-    finalReview = {
-      ...localReview,
-      summary: `真实 AI 点评暂时失败，这次先回退到本地规则点评。错误信息：${error.message}\n\n${localReview.summary}`,
-      source: "本地规则",
-    };
-  } finally {
-    els.analyzeButton.disabled = false;
-    els.analyzeButton.textContent = "智能点评";
-  }
-
-  progress[company.id].reviewCounts[question.question] =
-    (progress[company.id].reviewCounts[question.question] || 0) + 1;
-  progress[company.id].scores[question.question] = finalReview;
-  saveProgress();
-  renderReview(finalReview);
-  renderCompanyMeta(company);
-  renderProgress(company);
-  renderBatchList();
-  renderCompanyGrid();
+  setSaveNote("这一题已清空");
+  renderDetailMeta(company);
+  renderQuestionJumps(company);
+  renderBoard();
 }
 
 function switchQuestion(delta) {
-  const company = getCompanyById(state.selectedCompanyId);
+  const company = getCurrentCompany();
   if (!company) return;
+
   saveCurrentAnswer();
   state.questionIndex =
     (state.questionIndex + delta + company.questions.length) % company.questions.length;
   progress[company.id].lastQuestion = state.questionIndex;
   saveProgress();
   renderQuestion(company);
-  renderProgress(company);
 }
 
-function initVoiceInput() {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) {
-    els.voiceStatus.textContent = "当前浏览器不支持语音输入，建议用 Chrome。";
-    document.getElementById("start-voice").disabled = true;
-    return;
-  }
+function jumpToQuestion(index) {
+  const company = getCurrentCompany();
+  if (!company) return;
+  if (index < 0 || index >= company.questions.length) return;
 
-  const recognition = new Recognition();
-  recognition.lang = "zh-CN";
-  recognition.interimResults = true;
-  recognition.continuous = true;
+  saveCurrentAnswer();
+  state.questionIndex = index;
+  progress[company.id].lastQuestion = state.questionIndex;
+  saveProgress();
+  renderQuestion(company);
+}
 
-  let finalTranscript = "";
-  let seedText = "";
+function updateCompanyStatus(status) {
+  const company = getCurrentCompany();
+  if (!company || !statusOptions.includes(status)) return;
 
-  recognition.onstart = () => {
-    seedText = els.answerInput.value.trim();
-    finalTranscript = "";
-    els.voiceStatus.textContent = "正在听你说话...";
-    document.getElementById("start-voice").disabled = true;
-    document.getElementById("stop-voice").disabled = false;
-  };
-
-  recognition.onresult = (event) => {
-    let interimTranscript = "";
-
-    for (let index = event.resultIndex; index < event.results.length; index += 1) {
-      const transcript = event.results[index][0].transcript;
-      if (event.results[index].isFinal) {
-        finalTranscript += transcript;
-      } else {
-        interimTranscript += transcript;
-      }
-    }
-
-    const pieces = [seedText, finalTranscript, interimTranscript].filter(Boolean);
-    els.answerInput.value = pieces.join(seedText ? "\n" : "");
-  };
-
-  recognition.onerror = () => {
-    els.voiceStatus.textContent = "语音输入失败，可以切回手动输入。";
-    document.getElementById("start-voice").disabled = false;
-    document.getElementById("stop-voice").disabled = true;
-  };
-
-  recognition.onend = () => {
-    els.voiceStatus.textContent = "语音已结束，可以继续修改答案。";
-    document.getElementById("start-voice").disabled = false;
-    document.getElementById("stop-voice").disabled = true;
-    saveCurrentAnswer();
-  };
-
-  state.recognition = {
-    recognition,
-  };
+  progress[company.id].status = status;
+  saveProgress();
+  renderDetailMeta(company);
+  renderBoard();
 }
 
 function bindEvents() {
   document.addEventListener("click", (event) => {
-    const selector = event.target.closest("[data-company-select]");
-    if (selector) {
-      renderCompany(selector.dataset.companySelect);
+    const companyButton = event.target.closest("[data-company-select]");
+    if (companyButton) {
+      renderCompany(companyButton.dataset.companySelect);
+      return;
+    }
+
+    const statusButton = event.target.closest("[data-status-select]");
+    if (statusButton) {
+      updateCompanyStatus(statusButton.dataset.statusSelect);
+      return;
+    }
+
+    const jumpButton = event.target.closest("[data-question-jump]");
+    if (jumpButton) {
+      jumpToQuestion(Number(jumpButton.dataset.questionJump));
     }
   });
 
-  document.getElementById("random-company").addEventListener("click", () => {
-    const index = Math.floor(Math.random() * companies.length);
-    renderCompany(companies[index].id);
+  document.getElementById("back-button").addEventListener("click", showBoard);
+  document.getElementById("prev-question").addEventListener("click", () => switchQuestion(-1));
+  document.getElementById("next-question").addEventListener("click", () => switchQuestion(1));
+  document.getElementById("flip-card").addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleCard(true);
   });
-
-  document.getElementById("back-to-dashboard").addEventListener("click", () => {
-    saveCurrentAnswer();
-    showDashboard();
+  document.getElementById("flip-card-back").addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleCard(false);
   });
-
-  document.getElementById("flip-card").addEventListener("click", () => {
-    state.flipped = !state.flipped;
-    els.flashcard.classList.toggle("is-flipped", state.flipped);
-  });
-
-  els.flashcard.addEventListener("click", () => {
-    state.flipped = !state.flipped;
-    els.flashcard.classList.toggle("is-flipped", state.flipped);
-  });
-
-  document.getElementById("prev-card").addEventListener("click", () => switchQuestion(-1));
-  document.getElementById("next-card").addEventListener("click", () => switchQuestion(1));
-
-  document.getElementById("clear-answer").addEventListener("click", () => {
-    els.answerInput.value = "";
-    clearCurrentReviewCache();
-    saveCurrentAnswer();
-    resetReview();
-  });
-
-  els.analyzeButton.addEventListener("click", analyzeCurrentAnswer);
-
+  document.getElementById("clear-answer").addEventListener("click", clearCurrentAnswer);
   document.getElementById("reset-progress").addEventListener("click", () => {
-    if (!window.confirm("要清空所有作答记录和点评结果吗？")) return;
+    if (!window.confirm("要清空所有公司的答题记录、轮次和状态吗？")) return;
     localStorage.removeItem(storageKey);
     Object.keys(progress).forEach((key) => delete progress[key]);
-    resetReview();
-    renderBatchList();
-    renderCompanyGrid();
-    if (state.selectedCompanyId) renderCompany(state.selectedCompanyId);
+    setSaveNote("记录已清空");
+    if (state.selectedCompanyId) {
+      renderCompany(state.selectedCompanyId);
+      return;
+    }
+    renderBoard();
   });
 
-  els.answerInput.addEventListener("input", () => {
-    clearCurrentReviewCache();
-    saveCurrentAnswer();
-    resetReview();
-  });
-
-  document.getElementById("start-voice").addEventListener("click", () => {
-    if (!state.recognition) return;
-    state.recognition.recognition.start();
-  });
-
-  document.getElementById("stop-voice").addEventListener("click", () => {
-    if (!state.recognition) return;
-    state.recognition.recognition.stop();
-  });
-
-  els.saveAiSettings.addEventListener("click", saveAiSettingsFromForm);
-  els.checkAiService.addEventListener("click", () => {
-    Object.assign(aiSettings, collectAiSettingsFromForm());
-    saveAiSettings();
-    checkAiService(true);
+  els.answerInput.addEventListener("input", saveCurrentAnswer);
+  els.flashcard.addEventListener("click", (event) => {
+    if (event.target.closest("button")) return;
+    toggleCard();
   });
 }
 
 function init() {
-  renderResumeLegend();
-  renderBatchList();
-  renderCompanyGrid();
-  hydrateAiSettingsForm();
+  renderBoard();
   bindEvents();
-  initVoiceInput();
-  els.heroResume.textContent = "V3 试水 / V1 主攻 / V2 冲刺";
-
-  if (aiSettings.mode === "local") {
-    renderAiStatus("当前设置为只用本地规则点评。你也可以切到混合模式，让线上或本地服务接入真实 AI。");
-  } else {
-    renderAiStatus("默认已开启 AI 混合点评。页面会优先检测当前站点是否已经配置了服务端 AI。");
-  }
 
   if ("serviceWorker" in navigator && window.location.protocol !== "file:") {
     navigator.serviceWorker.register("./service-worker.js").catch(() => {
-      // Ignore service worker registration failures and keep the app usable.
-    });
-  }
-
-  if (window.location.protocol === "http:" || window.location.protocol === "https:") {
-    checkAiService(false).then((ready) => {
-      if (!ready) {
-        renderAiStatus("当前页面可在线访问，但还没检测到 AI 服务。你可以先正常刷题，之后再接 AI 点评。");
-        return;
-      }
-
-      if (state.aiServerConfigured) {
-        renderAiStatus("已检测到服务端 AI 配置。现在你在手机上也可以直接使用真实 AI 点评，不需要再手动填 API Key。");
-      }
+      // Keep the app usable even if the service worker fails.
     });
   }
 }

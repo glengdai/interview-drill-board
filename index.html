@@ -3,275 +3,108 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>面试闪卡作战台</title>
+    <title>面试刷题板</title>
     <meta name="theme-color" content="#d96f32" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="面试闪卡作战台" />
+    <meta name="apple-mobile-web-app-title" content="面试刷题板" />
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./icon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app-shell">
-      <header class="hero">
-        <div class="hero__text">
-          <p class="eyebrow">Interview Drill Board</p>
-          <h1>面试闪卡作战台</h1>
-          <p class="hero__summary">
-            把投递节奏、简历版本、公司定制问答和回答点评放在一个页面里。你每天通勤时刷题，
-            回答后立刻看参考答案和改进建议。
+      <header class="topbar">
+        <div>
+          <p class="topbar__eyebrow">Interview Drill</p>
+          <h1>面试刷题板</h1>
+          <p class="topbar__summary">
+            首页看投递节奏，点公司进去直接刷题。只保留公司卡片、状态、简历版本和翻卡练习。
           </p>
         </div>
-        <div class="hero__panel">
-          <div class="hero__stat">
-            <span class="hero__label">本周目标</span>
-            <strong>先投 3 份</strong>
-            <span>雷神 / 雷鸟 / OPPO</span>
-          </div>
-          <div class="hero__stat">
-            <span class="hero__label">主战简历</span>
-            <strong id="hero-resume">V3 + V1</strong>
-            <span>先试水，再主攻</span>
-          </div>
-        </div>
+        <button id="reset-progress" class="text-button" type="button">清空记录</button>
       </header>
 
-      <main class="layout">
-        <aside class="sidebar">
-          <section class="panel panel--sticky">
-            <div class="panel__header">
-              <h2>投递总览</h2>
-              <button id="reset-progress" class="ghost-button" type="button">
-                清空记录
-              </button>
+      <main>
+        <section id="board-view" class="board-view">
+          <div class="section-heading">
+            <div>
+              <p class="section-heading__eyebrow">This Week</p>
+              <h2>每周投递看板</h2>
             </div>
+            <p class="section-heading__summary">
+              每张卡片会显示投递状态、简历版本、已刷轮次和已答题进度。
+            </p>
+          </div>
+          <div id="board-sections" class="board-sections"></div>
+        </section>
 
-            <div class="resume-legend" id="resume-legend"></div>
-            <div class="batch-list" id="batch-list"></div>
+        <section id="detail-view" class="detail-view hidden">
+          <div class="detail-header">
+            <button id="back-button" class="text-button" type="button">返回首页</button>
+            <div>
+              <p id="detail-phase" class="detail-header__eyebrow"></p>
+              <h2 id="company-name"></h2>
+              <p id="company-role" class="detail-header__role"></p>
+            </div>
+          </div>
+
+          <div class="detail-strip">
+            <div id="company-resume" class="info-pill"></div>
+            <div id="company-schedule" class="info-pill"></div>
+            <div id="company-progress" class="info-pill"></div>
+          </div>
+
+          <section class="status-panel">
+            <p class="status-panel__label">投递状态</p>
+            <div id="company-status-switch" class="status-switch"></div>
           </section>
-        </aside>
 
-        <section class="content">
-          <section class="panel dashboard" id="dashboard-view">
-            <div class="panel__header">
-              <div>
-                <p class="section-tag">Dashboard</p>
-                <h2>今天刷哪家</h2>
+          <section class="practice-panel">
+            <div class="question-toolbar">
+              <button id="prev-question" class="icon-button" type="button">上一题</button>
+              <div class="question-toolbar__center">
+                <strong id="question-counter"></strong>
+                <span id="question-type" class="type-pill"></span>
               </div>
-              <button id="random-company" class="primary-button" type="button">
-                随机来一家
-              </button>
+              <button id="next-question" class="icon-button" type="button">下一题</button>
             </div>
 
-            <div class="company-grid" id="company-grid"></div>
-          </section>
+            <div class="flashcard-shell">
+              <article id="flashcard" class="flashcard">
+                <div class="flashcard__face flashcard__face--front">
+                  <p class="flashcard__label">问题</p>
+                  <h3 id="card-question"></h3>
+                  <div id="card-prompts" class="prompt-list"></div>
+                  <button id="flip-card" class="primary-button" type="button">翻到答案</button>
+                </div>
+                <div class="flashcard__face flashcard__face--back">
+                  <p class="flashcard__label">参考答案</p>
+                  <div id="card-answer" class="reference-answer"></div>
+                  <button id="flip-card-back" class="ghost-button" type="button">回到问题</button>
+                </div>
+              </article>
+            </div>
 
-          <section class="panel company-view hidden" id="company-view">
-            <div class="panel__header company-view__header">
-              <div>
-                <p class="section-tag" id="company-batch-tag"></p>
-                <h2 id="company-name"></h2>
-                <p class="company-role" id="company-role"></p>
-              </div>
-              <div class="company-actions">
-                <button id="back-to-dashboard" class="ghost-button" type="button">
-                  返回总览
-                </button>
+            <div class="answer-panel">
+              <label for="answer-input">你的回答</label>
+              <textarea
+                id="answer-input"
+                placeholder="直接在这里写，页面会自动保存这一题。"
+              ></textarea>
+              <div class="answer-panel__footer">
+                <span id="save-note">自动保存中</span>
+                <button id="clear-answer" class="ghost-button" type="button">清空这一题</button>
               </div>
             </div>
 
-            <div class="company-meta" id="company-meta"></div>
-
-            <div class="split-layout">
-              <div class="card-workspace">
-                <div class="card-toolbar">
-                  <div class="card-toolbar__left">
-                    <span id="question-counter"></span>
-                    <span id="question-type" class="pill"></span>
-                  </div>
-                  <div class="card-toolbar__right">
-                    <button id="prev-card" class="ghost-button" type="button">
-                      上一题
-                    </button>
-                    <button id="flip-card" class="primary-button" type="button">
-                      翻卡
-                    </button>
-                    <button id="next-card" class="ghost-button" type="button">
-                      下一题
-                    </button>
-                  </div>
-                </div>
-
-                <div class="flashcard-shell">
-                  <article class="flashcard" id="flashcard">
-                    <div class="flashcard__face flashcard__face--front">
-                      <p class="flashcard__hint">题面</p>
-                      <h3 id="card-question"></h3>
-                      <ul class="point-list" id="card-prompts"></ul>
-                    </div>
-                    <div class="flashcard__face flashcard__face--back">
-                      <p class="flashcard__hint">参考答案</p>
-                      <div id="card-answer" class="reference-answer"></div>
-                      <div class="key-points">
-                        <p>回答要点</p>
-                        <div id="card-key-points" class="key-points__items"></div>
-                      </div>
-                    </div>
-                  </article>
-                </div>
-
-                <div class="answer-box">
-                  <label for="answer-input">你的回答</label>
-                  <textarea
-                    id="answer-input"
-                    placeholder="你可以打字，也可以先点语音输入，再自己修一下。"
-                  ></textarea>
-                  <div class="answer-actions">
-                    <div class="answer-actions__left">
-                      <button id="start-voice" class="ghost-button" type="button">
-                        语音输入
-                      </button>
-                      <button id="stop-voice" class="ghost-button" type="button" disabled>
-                        停止
-                      </button>
-                      <span id="voice-status" class="voice-status">语音未启动</span>
-                    </div>
-                    <div class="answer-actions__right">
-                      <button id="clear-answer" class="ghost-button" type="button">
-                        清空
-                      </button>
-                      <button id="analyze-answer" class="primary-button" type="button">
-                        智能点评
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="review-panel">
-                <div class="review-card">
-                  <p class="section-tag">Review</p>
-                  <div class="review-card__title">
-                    <h3>智能点评</h3>
-                    <span id="review-source" class="badge">本地规则</span>
-                  </div>
-                  <div class="score-ring">
-                    <span id="score-value">--</span>
-                    <small>/100</small>
-                  </div>
-                  <div id="score-badges" class="score-badges"></div>
-                  <div id="review-summary" class="review-summary">
-                    写完回答后点“智能点评”，这里会看你的结构、关键词覆盖、结果感和表达习惯。
-                  </div>
-                  <div id="review-rewrite-wrap" class="script-block hidden">
-                    <p class="script-label">建议口语版</p>
-                    <div id="review-rewrite" class="script-content"></div>
-                  </div>
-                </div>
-
-                <div class="review-card">
-                  <p class="section-tag">Quick Help</p>
-                  <h3>投递辅助</h3>
-                  <div class="script-block">
-                    <p class="script-label">BOSS 打招呼</p>
-                    <div id="greeting-text" class="script-content"></div>
-                  </div>
-                  <div class="script-block">
-                    <p class="script-label">30 秒自我介绍提纲</p>
-                    <div id="intro-text" class="script-content"></div>
-                  </div>
-                </div>
-
-                <div class="review-card">
-                  <p class="section-tag">AI Coach</p>
-                  <h3>真实 AI 点评</h3>
-                  <div class="config-grid">
-                    <label class="field">
-                      <span>点评模式</span>
-                      <select id="review-mode">
-                        <option value="local">只用本地规则</option>
-                        <option value="hybrid">AI + 本地混合</option>
-                        <option value="remote">只用 AI 点评</option>
-                      </select>
-                    </label>
-                    <label class="field">
-                      <span>本地代理地址</span>
-                      <input
-                        id="proxy-url"
-                        type="text"
-                        placeholder="http://127.0.0.1:8787/api/review"
-                      />
-                    </label>
-                    <label class="field">
-                      <span>模型网关 Base URL</span>
-                      <input
-                        id="ai-base-url"
-                        type="text"
-                        placeholder="https://api.openai.com/v1"
-                      />
-                    </label>
-                    <label class="field">
-                      <span>API Key</span>
-                      <input id="ai-api-key" type="password" placeholder="sk-..." />
-                    </label>
-                    <label class="field">
-                      <span>模型名</span>
-                      <input id="ai-model" type="text" placeholder="gpt-4.1-mini" />
-                    </label>
-                  </div>
-                  <div class="answer-actions">
-                    <div class="answer-actions__left">
-                      <span id="ai-status" class="voice-status">
-                        默认使用本地规则点评；想启用真实 AI，请先运行本地代理。
-                      </span>
-                    </div>
-                    <div class="answer-actions__right">
-                      <button id="check-ai-service" class="ghost-button" type="button">
-                        检查代理
-                      </button>
-                      <button id="save-ai-settings" class="primary-button" type="button">
-                        保存 AI 配置
-                      </button>
-                    </div>
-                  </div>
-                  <p class="script-label">
-                    推荐先运行 <code>node server.js</code>，网页再通过本地代理调用真实 AI，
-                    会比浏览器直连更稳。
-                  </p>
-                </div>
-
-                <div class="review-card">
-                  <p class="section-tag">Mobile</p>
-                  <h3>手机刷题</h3>
-                  <div class="script-block">
-                    <p class="script-label">怎么在手机上打开</p>
-                    <div class="script-content">
-                      已部署线上后：直接用手机打开你的站点域名即可。<br />
-                      本地调试时：<br />
-                      1. 在电脑里运行 <code>node server.js</code><br />
-                      2. 让手机和电脑连接同一个 Wi‑Fi<br />
-                      3. 用手机浏览器打开终端里显示的局域网地址<br />
-                      4. 打开后可加到主屏幕，通勤时直接点开刷题
-                    </div>
-                  </div>
-                </div>
-
-                <div class="review-card">
-                  <p class="section-tag">Progress</p>
-                  <h3>刷题进度</h3>
-                  <div id="progress-list" class="progress-list"></div>
-                </div>
-              </div>
-            </div>
+            <div id="question-jumps" class="question-jumps"></div>
           </section>
         </section>
       </main>
     </div>
 
-    <script src="./app.js"></script>
+    <script type="module" src="./app.js"></script>
   </body>
 </html>
